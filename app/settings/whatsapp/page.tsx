@@ -1,16 +1,23 @@
 "use client";
 // app/settings/whatsapp/page.tsx
-// Connect WhatsApp — Assisted Onboarding Wizard
+// Connect WhatsApp — Direct Token Connection + Readiness Checklist
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-type WizardStep = "readiness" | "connecting" | "success" | "error";
+type WizardStep = "readiness" | "connect" | "connecting" | "success" | "error";
 
-interface OnboardingError {
-    class: string;
-    display_title: string;
-    display_body: string;
-    user_action: string;
+interface ConnectedAccount {
+    id: string;
+    wabaId: string;
+    phoneNumberId: string;
+    displayPhoneNumber: string | null;
+    status: string;
+    createdAt: string;
+}
+
+interface ConnectError {
+    message: string;
+    meta_error?: Record<string, unknown>;
 }
 
 export default function ConnectWhatsApp() {
@@ -21,10 +28,15 @@ export default function ConnectWhatsApp() {
         metaBusiness: false,
         notConnected: false,
     });
-    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [formData, setFormData] = useState({
+        access_token: "",
+        phone_number_id: "",
+        waba_id: "",
+    });
     const [status, setStatus] = useState<string>("");
-    const [error, setError] = useState<OnboardingError | null>(null);
+    const [error, setError] = useState<ConnectError | null>(null);
     const [loading, setLoading] = useState(false);
+    const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
 
     const allChecked = Object.values(checks).every(Boolean);
 
@@ -32,53 +44,57 @@ export default function ConnectWhatsApp() {
         setChecks((prev) => ({ ...prev, [key]: !prev[key] }));
     };
 
-    const startConnect = async () => {
+    // Load existing accounts on mount
+    useEffect(() => {
+        fetchAccounts();
+    }, []);
+
+    const fetchAccounts = async () => {
+        try {
+            const res = await fetch("/api/wa/connect");
+            const data = await res.json();
+            if (data.ok) {
+                setAccounts(data.accounts);
+            }
+        } catch {
+            // Silently fail — accounts list is optional
+        }
+    };
+
+    const handleConnect = async () => {
+        if (!formData.access_token || !formData.phone_number_id || !formData.waba_id) {
+            setError({ message: "Please fill in all fields." });
+            setStep("error");
+            return;
+        }
+
         setLoading(true);
         setStep("connecting");
-        setStatus("Initializing...");
+        setStatus("Validating credentials with Meta...");
 
         try {
-            // Step 1: Start onboarding
-            const startRes = await fetch("/api/wa/onboarding/start", {
+            const res = await fetch("/api/wa/connect", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ mode_requested: "coexistence" }),
+                body: JSON.stringify(formData),
             });
-            const startData = await startRes.json();
-            setSessionId(startData.session_id);
-            setStatus("Session created — launching Embedded Signup...");
 
-            // Step 2: Simulate Embedded Signup completion (stubbed)
-            // In production, this opens Meta's Embedded Signup window.
-            // For now, we auto-complete by calling /complete with stub data.
-            await new Promise((r) => setTimeout(r, 1500));
-            setStatus("Exchanging token...");
+            const data = await res.json();
 
-            const completeRes = await fetch("/api/wa/onboarding/complete", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    state: startData.state,
-                    waba_id: "STUB_WABA_" + Date.now(),
-                    phone_number_id: "STUB_PHONE_" + Date.now(),
-                    code: "STUB_CODE_" + Date.now(),
-                }),
-            });
-            const completeData = await completeRes.json();
-
-            if (completeData.ok) {
-                setStatus(completeData.status);
+            if (data.ok) {
+                setStatus("Connected!");
                 setStep("success");
+                fetchAccounts(); // Refresh the accounts list
             } else {
-                setError(completeData.error);
+                setError({
+                    message: data.error || "Connection failed",
+                    meta_error: data.meta_error,
+                });
                 setStep("error");
             }
         } catch (err) {
             setError({
-                class: "UNKNOWN",
-                display_title: "Connection failed",
-                display_body: (err as Error).message || "An unexpected error occurred.",
-                user_action: "RETRY",
+                message: (err as Error).message || "An unexpected error occurred.",
             });
             setStep("error");
         } finally {
@@ -86,54 +102,12 @@ export default function ConnectWhatsApp() {
         }
     };
 
-    const handleFallback = async () => {
-        if (!sessionId) return;
-        setLoading(true);
-        setStep("connecting");
-        setStatus("Switching to API-only...");
-
-        try {
-            const fallbackRes = await fetch("/api/wa/onboarding/fallback", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ session_id: sessionId }),
-            });
-            const fallbackData = await fallbackRes.json();
-            setSessionId(fallbackData.session_id);
-
-            await new Promise((r) => setTimeout(r, 1000));
-            setStatus("Completing API-only connection...");
-
-            const completeRes = await fetch("/api/wa/onboarding/complete", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    state: fallbackData.state,
-                    waba_id: "STUB_WABA_FALLBACK_" + Date.now(),
-                    phone_number_id: "STUB_PHONE_FALLBACK_" + Date.now(),
-                    code: "STUB_CODE_FALLBACK_" + Date.now(),
-                }),
-            });
-            const completeData = await completeRes.json();
-
-            if (completeData.ok) {
-                setStatus(completeData.status);
-                setStep("success");
-            } else {
-                setError(completeData.error);
-                setStep("error");
-            }
-        } catch (err) {
-            setError({
-                class: "UNKNOWN",
-                display_title: "Fallback failed",
-                display_body: (err as Error).message || "An unexpected error occurred.",
-                user_action: "CONTACT_SUPPORT",
-            });
-            setStep("error");
-        } finally {
-            setLoading(false);
-        }
+    const resetWizard = () => {
+        setStep("readiness");
+        setChecks({ businessApp: false, pinReady: false, metaBusiness: false, notConnected: false });
+        setFormData({ access_token: "", phone_number_id: "", waba_id: "" });
+        setError(null);
+        setStatus("");
     };
 
     return (
@@ -142,6 +116,49 @@ export default function ConnectWhatsApp() {
                 <h1>Connect WhatsApp</h1>
                 <p>Link your WhatsApp Business number to start receiving messages.</p>
             </div>
+
+            {/* ─── Connected Accounts ─── */}
+            {accounts.length > 0 && (
+                <div className="card" style={{ marginBottom: "1.5rem" }}>
+                    <h2 style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>📱 Connected Numbers</h2>
+                    {accounts.map((account) => (
+                        <div
+                            key={account.id}
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                padding: "0.75rem",
+                                background: "rgba(37, 211, 102, 0.08)",
+                                borderRadius: "8px",
+                                marginBottom: "0.5rem",
+                                border: "1px solid rgba(37, 211, 102, 0.2)",
+                            }}
+                        >
+                            <div>
+                                <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+                                    {account.displayPhoneNumber || account.phoneNumberId}
+                                </span>
+                                <span
+                                    style={{
+                                        marginLeft: "0.75rem",
+                                        fontSize: "0.75rem",
+                                        background: "rgba(37, 211, 102, 0.2)",
+                                        color: "#25D366",
+                                        padding: "2px 8px",
+                                        borderRadius: "4px",
+                                    }}
+                                >
+                                    {account.status}
+                                </span>
+                            </div>
+                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                                WABA: {account.wabaId}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* ─── Step 1: Readiness Check ─── */}
             {step === "readiness" && (
@@ -154,8 +171,8 @@ export default function ConnectWhatsApp() {
                     <ul className="checklist">
                         {[
                             { key: "businessApp" as const, label: "I'm using WhatsApp Business App (not personal WhatsApp)" },
-                            { key: "pinReady" as const, label: "I know my 6-digit WhatsApp Manager PIN" },
-                            { key: "metaBusiness" as const, label: "I have a Meta Business account (or will create one)" },
+                            { key: "pinReady" as const, label: "I have my Meta access token ready" },
+                            { key: "metaBusiness" as const, label: "I have a Meta Business account set up" },
                             { key: "notConnected" as const, label: "This number is not connected to another API provider" },
                         ].map(({ key, label }) => (
                             <li
@@ -172,8 +189,8 @@ export default function ConnectWhatsApp() {
                     </ul>
 
                     <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem" }}>
-                        <button className="btn btn-primary" disabled={!allChecked || loading} onClick={startConnect}>
-                            🔗 Connect WhatsApp
+                        <button className="btn btn-primary" disabled={!allChecked} onClick={() => setStep("connect")}>
+                            Continue →
                         </button>
                     </div>
 
@@ -185,22 +202,128 @@ export default function ConnectWhatsApp() {
                 </div>
             )}
 
-            {/* ─── Step 2: Connecting ─── */}
+            {/* ─── Step 2: Enter Credentials ─── */}
+            {step === "connect" && (
+                <div className="card" style={{ maxWidth: 600 }}>
+                    <h2 style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>🔗 Connect Your WhatsApp Number</h2>
+                    <p style={{ color: "var(--text-secondary)", marginBottom: "1.25rem", fontSize: "0.9rem" }}>
+                        Enter your Meta WhatsApp Business API credentials below. You can find these in your{" "}
+                        <a
+                            href="https://developers.facebook.com"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "var(--bg-accent)" }}
+                        >
+                            Meta Developer Console
+                        </a>.
+                    </p>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                        <div>
+                            <label
+                                htmlFor="waba_id"
+                                style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.35rem" }}
+                            >
+                                WhatsApp Business Account ID
+                            </label>
+                            <input
+                                id="waba_id"
+                                type="text"
+                                placeholder="e.g. 1970789736851025"
+                                value={formData.waba_id}
+                                onChange={(e) => setFormData((prev) => ({ ...prev, waba_id: e.target.value }))}
+                                style={{
+                                    width: "100%",
+                                    padding: "0.6rem 0.75rem",
+                                    background: "var(--bg-secondary)",
+                                    border: "1px solid var(--border-color)",
+                                    borderRadius: "6px",
+                                    color: "var(--text-primary)",
+                                    fontSize: "0.9rem",
+                                }}
+                            />
+                        </div>
+
+                        <div>
+                            <label
+                                htmlFor="phone_number_id"
+                                style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.35rem" }}
+                            >
+                                Phone Number ID
+                            </label>
+                            <input
+                                id="phone_number_id"
+                                type="text"
+                                placeholder="e.g. 1061901597001461"
+                                value={formData.phone_number_id}
+                                onChange={(e) => setFormData((prev) => ({ ...prev, phone_number_id: e.target.value }))}
+                                style={{
+                                    width: "100%",
+                                    padding: "0.6rem 0.75rem",
+                                    background: "var(--bg-secondary)",
+                                    border: "1px solid var(--border-color)",
+                                    borderRadius: "6px",
+                                    color: "var(--text-primary)",
+                                    fontSize: "0.9rem",
+                                }}
+                            />
+                        </div>
+
+                        <div>
+                            <label
+                                htmlFor="access_token"
+                                style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, marginBottom: "0.35rem" }}
+                            >
+                                Access Token
+                            </label>
+                            <textarea
+                                id="access_token"
+                                placeholder="Paste your Meta access token here..."
+                                value={formData.access_token}
+                                onChange={(e) => setFormData((prev) => ({ ...prev, access_token: e.target.value }))}
+                                rows={3}
+                                style={{
+                                    width: "100%",
+                                    padding: "0.6rem 0.75rem",
+                                    background: "var(--bg-secondary)",
+                                    border: "1px solid var(--border-color)",
+                                    borderRadius: "6px",
+                                    color: "var(--text-primary)",
+                                    fontSize: "0.9rem",
+                                    resize: "vertical",
+                                    fontFamily: "monospace",
+                                }}
+                            />
+                            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                                Your token is encrypted and stored securely. It will not be exposed after connection.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem" }}>
+                        <button className="btn btn-primary" disabled={loading} onClick={handleConnect}>
+                            🔗 Connect WhatsApp
+                        </button>
+                        <button className="btn btn-secondary" onClick={() => setStep("readiness")}>
+                            ← Back
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Step 3: Connecting ─── */}
             {step === "connecting" && (
                 <div className="card" style={{ maxWidth: 600 }}>
                     <h2 style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>🔄 Connecting...</h2>
                     <div className="steps">
-                        <div className={`step ${status.includes("Initializing") ? "step-active" : "step-done"}`}>
-                            ● Initializing session
+                        <div className={`step ${status.includes("Validating") ? "step-active" : "step-done"}`}>
+                            ● Validating credentials with Meta
                         </div>
-                        <div className={`step ${status.includes("launching") || status.includes("Embedded") ? "step-active" : status.includes("Exchanging") || status.includes("Completing") || status.includes("connected") ? "step-done" : "step-pending"}`}>
-                            ● Launching Embedded Signup
+                        <div className={`step ${status.includes("Subscribing") ? "step-active" : status.includes("Connected") ? "step-done" : "step-pending"}`}>
+                            ● Subscribing to webhooks
                         </div>
-                        <div className={`step ${status.includes("Exchanging") ? "step-active" : status.includes("connected") ? "step-done" : "step-pending"}`}>
-                            ● Exchanging token
-                        </div>
-                        <div className={`step ${status.includes("connected") ? "step-done" : "step-pending"}`}>
-                            ● Subscribing webhooks
+                        <div className={`step ${status.includes("Connected") ? "step-done" : "step-pending"}`}>
+                            ● Saving account
                         </div>
                     </div>
                     <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "1rem" }}>
@@ -209,7 +332,7 @@ export default function ConnectWhatsApp() {
                 </div>
             )}
 
-            {/* ─── Step 3: Success ─── */}
+            {/* ─── Step 4: Success ─── */}
             {step === "success" && (
                 <div className="card" style={{ maxWidth: 600, borderColor: "rgba(37, 211, 102, 0.4)" }}>
                     <h2 style={{ color: "var(--bg-accent)", marginBottom: "0.5rem" }}>✅ WhatsApp Connected!</h2>
@@ -219,38 +342,33 @@ export default function ConnectWhatsApp() {
                     </p>
                     <div style={{ display: "flex", gap: "0.75rem" }}>
                         <a href="/inbox" className="btn btn-primary">Go to Inbox →</a>
-                        <button className="btn btn-secondary" onClick={() => { setStep("readiness"); setChecks({ businessApp: false, pinReady: false, metaBusiness: false, notConnected: false }); }}>
+                        <button className="btn btn-secondary" onClick={resetWizard}>
                             Connect Another Number
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* ─── Step 4: Error ─── */}
+            {/* ─── Step 5: Error ─── */}
             {step === "error" && error && (
                 <div style={{ maxWidth: 600 }}>
                     <div className="error-card" style={{ marginBottom: "1rem" }}>
-                        <h3>{error.display_title}</h3>
-                        <p>{error.display_body}</p>
-                        <span className="badge badge-off" style={{ marginTop: "0.75rem" }}>{error.class}</span>
+                        <h3>Connection Failed</h3>
+                        <p>{error.message}</p>
+                        {error.meta_error && (
+                            <pre style={{ fontSize: "0.75rem", marginTop: "0.5rem", opacity: 0.7, whiteSpace: "pre-wrap" }}>
+                                {JSON.stringify(error.meta_error, null, 2)}
+                            </pre>
+                        )}
                     </div>
 
                     <div style={{ display: "flex", gap: "0.75rem" }}>
-                        {(error.user_action === "RETRY" || error.user_action === "FIX_AND_RETRY") && (
-                            <button className="btn btn-secondary" onClick={() => { setStep("readiness"); setError(null); }}>
-                                ← Try Again
-                            </button>
-                        )}
-                        {error.user_action === "FALLBACK_API_ONLY" && (
-                            <button className="btn btn-primary" onClick={handleFallback} disabled={loading}>
-                                Use API-only Connection Instead
-                            </button>
-                        )}
-                        {error.user_action === "CONTACT_SUPPORT" && (
-                            <a href="mailto:support@example.com" className="btn btn-secondary">
-                                Contact Support
-                            </a>
-                        )}
+                        <button className="btn btn-secondary" onClick={() => setStep("connect")}>
+                            ← Edit Credentials
+                        </button>
+                        <button className="btn btn-secondary" onClick={resetWizard}>
+                            Start Over
+                        </button>
                     </div>
                 </div>
             )}
