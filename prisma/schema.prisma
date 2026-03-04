@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Onboarding Session (state machine for connect flow) ───
+model OnboardingSession {
+  id             String   @id @default(uuid())
+  orgId          String
+  agentUserId    String
+  modeRequested  String   // "coexistence" | "api_only"
+  status         String   // state machine status
+  stateNonce     String
+  stateIssuedAt  DateTime
+  stateExpiresAt DateTime
+  wabaId         String?
+  phoneNumberId  String?
+  errorClass     String?
+  errorJson      String?  // JSON string of normalized error envelope
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([agentUserId])
+  @@index([phoneNumberId])
+  @@map("onboarding_sessions")
+}
+
+// ─── Agent-owned WhatsApp Account ───
+model WhatsAppAccount {
+  id                 String   @id @default(uuid())
+  orgId              String
+  agentUserId        String
+  wabaId             String
+  phoneNumberId      String   @unique
+  displayPhoneNumber String?
+  status             String   // "connected_coexistence" | "connected_api_only" | "disabled"
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  credential    WhatsAppCredential?
+  conversations WhatsAppConversation[]
+  messageIndex  WhatsAppMessageIndex[]
+
+  @@index([agentUserId])
+  @@map("whatsapp_accounts")
+}
+
+// ─── Encrypted Token Storage ───
+model WhatsAppCredential {
+  whatsappAccountId    String   @id
+  accessTokenCiphertext String
+  tokenKind            String   // "system_user" | "long_lived"
+  expiresAt            DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  account WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_credentials")
+}
+
+// ─── Conversation (per agent + contact thread) ───
+model WhatsAppConversation {
+  id                String   @id @default(uuid())
+  orgId             String
+  agentUserId       String
+  whatsappAccountId String
+  waContactId       String
+  leadId            String?
+  trackingMode      String   @default("off") // "off" | "tracked"
+  lastMessageAt     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  account      WhatsAppAccount        @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  messageIndex WhatsAppMessageIndex[]
+  messages     WhatsAppMessage[]
+
+  @@unique([whatsappAccountId, waContactId])
+  @@index([agentUserId])
+  @@map("whatsapp_conversations")
+}
+
+// ─── Always-stored minimal metadata (idempotency + badges) ───
+model WhatsAppMessageIndex {
+  id                String   @id @default(uuid())
+  orgId             String
+  agentUserId       String
+  whatsappAccountId String
+  conversationId    String
+  metaMessageId     String   @unique
+  direction         String   // "inbound"
+  ts                DateTime
+  msgType           String
+  createdAt         DateTime @default(now())
+
+  account      WhatsAppAccount      @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_message_index")
+}
+
+// ─── Full message content (ONLY when tracked) ───
+model WhatsAppMessage {
+  id             String   @id @default(uuid())
+  orgId          String
+  agentUserId    String
+  conversationId String
+  metaMessageId  String   @unique
+  ts             DateTime
+  msgType        String
+  text           String?
+  rawPayload     String?  // JSON string
+  createdAt      DateTime @default(now())
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_messages")
+}
