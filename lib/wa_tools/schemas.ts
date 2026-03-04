@@ -57,9 +57,9 @@ export const waOnboardingStartRequestSchema = z.object({
 });
 
 export const waOnboardingCompleteRequestSchema = z.object({
-    state: nonEmptyString,
-    waba_id: nonEmptyString,
-    phone_number_id: nonEmptyString,
+    state: nonEmptyString.optional(),
+    waba_id: nonEmptyString.optional(),
+    phone_number_id: nonEmptyString.optional(),
     code: nonEmptyString,
 });
 

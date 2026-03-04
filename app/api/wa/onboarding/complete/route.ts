@@ -20,64 +20,63 @@ export async function POST(req: NextRequest) {
         );
     }
 
-    const { state, waba_id, phone_number_id, code } = parsed.data;
-    const secret = process.env.WA_STATE_SIGNING_SECRET!;
-    const stateResult = verifyAndParseState(state, secret);
+    const { state, waba_id: frontend_waba_id, phone_number_id: frontend_phone_id, code } = parsed.data;
+    const secret = process.env.WA_STATE_SIGNING_SECRET || "default_secret";
 
-    if (!stateResult.ok) {
-        return NextResponse.json({ error: "Invalid state", reason: stateResult.reason }, { status: 403 });
+    // Try to find an onboarding session if state was passed and valid
+    let session = null;
+    if (state && state !== "session_state") {
+        const stateResult = verifyAndParseState(state, secret);
+        if (stateResult.ok) {
+            session = await prisma.onboardingSession.findUnique({
+                where: { id: stateResult.payload.session_id },
+            });
+        }
     }
-
-    const { payload } = stateResult;
-
-    // Verify session exists and is in the right state
-    const session = await prisma.onboardingSession.findUnique({
-        where: { id: payload.session_id },
-    });
-
-    if (!session || session.stateNonce !== payload.nonce) {
-        return NextResponse.json({ error: "Session not found or nonce mismatch" }, { status: 403 });
-    }
-
-    // Update session with received IDs
-    await prisma.onboardingSession.update({
-        where: { id: session.id },
-        data: {
-            status: "callback_received",
-            wabaId: waba_id,
-            phoneNumberId: phone_number_id,
-        },
-    });
 
     try {
-        // Step 1: Exchange code for token
+        // Step 1: Exchange code for token (AND dynamically fetch WABA ID / Phone Number ID)
         const tokenResult = await exchangeCodeForToken(code);
 
-        await prisma.onboardingSession.update({
-            where: { id: session.id },
-            data: { status: "token_exchanged" },
-        });
+        // Use the dynamically fetched IDs from the token exchange if available, otherwise fallback to frontend
+        const waba_id = tokenResult.waba_id || frontend_waba_id;
+        const phone_number_id = tokenResult.phone_number_id || frontend_phone_id;
+
+        if (!waba_id || !phone_number_id || waba_id.includes("extract_from") || phone_number_id.includes("extract_from")) {
+            throw new Error("Could not determine WABA ID or Phone Number ID from the token structure.");
+        }
+
+        if (session) {
+            await prisma.onboardingSession.update({
+                where: { id: session.id },
+                data: { status: "token_exchanged", wabaId: waba_id, phoneNumberId: phone_number_id },
+            });
+        }
 
         // Step 2: Subscribe to WABA webhooks
         await subscribeToWabaWebhooks(waba_id, tokenResult.access_token);
 
-        await prisma.onboardingSession.update({
-            where: { id: session.id },
-            data: { status: "webhooks_subscribed" },
-        });
+        if (session) {
+            await prisma.onboardingSession.update({
+                where: { id: session.id },
+                data: { status: "webhooks_subscribed" },
+            });
+        }
 
         // Step 3: Create WhatsApp account + credentials
         const accountId = uuidv4();
-        const connectionStatus =
-            session.modeRequested === "coexistence" ? "connected_coexistence" : "connected_api_only";
+        const connectionStatus = session?.modeRequested === "coexistence" ? "connected_coexistence" : "connected_api_only";
+
+        const orgId = session?.orgId ?? "default_org";
+        const agentUserId = session?.agentUserId ?? "default_agent";
 
         await prisma.whatsAppAccount.create({
             data: {
                 id: accountId,
-                orgId: session.orgId,
-                agentUserId: session.agentUserId,
+                orgId: orgId,
+                agentUserId: agentUserId,
                 wabaId: waba_id,
-                phoneNumberId: phone_number_id,
+                phoneNumberId: phone_number_id, // Could use tokenResult.display_phone_number elsewhere if needed
                 status: connectionStatus,
             },
         });
@@ -90,15 +89,17 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        // Finalize session
-        await prisma.onboardingSession.update({
-            where: { id: session.id },
-            data: { status: connectionStatus },
-        });
+        // Finalize session if it exists
+        if (session) {
+            await prisma.onboardingSession.update({
+                where: { id: session.id },
+                data: { status: connectionStatus },
+            });
+        }
 
         return NextResponse.json({
             ok: true,
-            session_id: session.id,
+            session_id: session?.id || "direct_flow",
             status: connectionStatus,
             account_id: accountId,
         });
@@ -106,20 +107,22 @@ export async function POST(req: NextRequest) {
         const errorPayload = err instanceof Error ? { message: err.message } : {};
         const envelope = classifyMetaError(undefined, (err as Error)?.message, errorPayload);
 
-        await prisma.onboardingSession.update({
-            where: { id: session.id },
-            data: {
-                status: "failed",
-                errorClass: envelope.class,
-                errorJson: JSON.stringify(envelope),
-            },
-        });
+        if (session) {
+            await prisma.onboardingSession.update({
+                where: { id: session.id },
+                data: {
+                    status: "failed",
+                    errorClass: envelope.class,
+                    errorJson: JSON.stringify(envelope),
+                },
+            });
+        }
 
         return NextResponse.json({
             ok: false,
-            session_id: session.id,
             status: "failed",
-            error: envelope,
+            error: envelope.display_title + ": " + envelope.display_body,
+            details: envelope
         });
     }
 }
