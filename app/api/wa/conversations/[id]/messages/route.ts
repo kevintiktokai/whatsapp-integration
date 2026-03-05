@@ -19,16 +19,6 @@ export async function GET(
         return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     }
 
-    if (conversation.trackingMode === "off") {
-        return NextResponse.json(
-            {
-                error: "Tracking is off for this conversation",
-                hint: "Enable tracking to view message content",
-            },
-            { status: 403 }
-        );
-    }
-
     const messages = await prisma.whatsAppMessage.findMany({
         where: { conversationId: id },
         orderBy: { ts: "asc" },
@@ -37,13 +27,24 @@ export async function GET(
     return NextResponse.json({
         conversation_id: id,
         tracking_mode: conversation.trackingMode,
-        messages: messages.map((m: { id: string; msgType: string; text: string | null; ts: Date; metaMessageId: string }) => ({
-            id: m.id,
-            direction: "inbound",
-            type: m.msgType,
-            text: m.text,
-            timestamp: m.ts.toISOString(),
-            meta_message_id: m.metaMessageId,
-        })),
+        wa_contact_id: conversation.waContactId,
+        messages: messages.map((m: { id: string; msgType: string; text: string | null; ts: Date; metaMessageId: string; rawPayload: string | null }) => {
+            // Detect direction from rawPayload
+            let direction = "inbound";
+            if (m.rawPayload) {
+                try {
+                    const parsed = JSON.parse(m.rawPayload);
+                    if (parsed.direction === "outbound") direction = "outbound";
+                } catch { /* ignore */ }
+            }
+            return {
+                id: m.id,
+                direction,
+                type: m.msgType,
+                text: m.text,
+                timestamp: m.ts.toISOString(),
+                meta_message_id: m.metaMessageId,
+            };
+        }),
     });
 }

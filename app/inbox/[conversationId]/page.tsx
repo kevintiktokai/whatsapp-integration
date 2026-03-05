@@ -1,8 +1,8 @@
 "use client";
 // app/inbox/[conversationId]/page.tsx
-// Chat thread view with tracking toggle
+// Chat thread view with compose box and auto-refresh
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 
 interface Message {
@@ -18,23 +18,21 @@ export default function ChatThread() {
     const params = useParams();
     const conversationId = params.conversationId as string;
 
-    const [trackingMode, setTrackingMode] = useState<string>("off");
     const [messages, setMessages] = useState<Message[]>([]);
+    const [waContactId, setWaContactId] = useState<string>("");
     const [loading, setLoading] = useState(true);
-    const [toggling, setToggling] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [newMessage, setNewMessage] = useState("");
+    const [sending, setSending] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const fetchMessages = async () => {
         try {
             const res = await fetch(`/api/wa/conversations/${conversationId}/messages`);
-            if (res.status === 403) {
-                setTrackingMode("off");
-                setMessages([]);
-                setError(null);
-            } else if (res.ok) {
+            if (res.ok) {
                 const data = await res.json();
-                setTrackingMode(data.tracking_mode);
                 setMessages(data.messages ?? []);
+                setWaContactId(data.wa_contact_id ?? "");
                 setError(null);
             } else {
                 setError("Failed to load messages");
@@ -48,95 +46,179 @@ export default function ChatThread() {
 
     useEffect(() => {
         fetchMessages();
+        // Auto-refresh every 5 seconds
+        const interval = setInterval(fetchMessages, 5000);
+        return () => clearInterval(interval);
     }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const toggleTracking = async () => {
-        setToggling(true);
-        const newMode = trackingMode === "tracked" ? "off" : "tracked";
+    // Scroll to bottom when new messages arrive
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
 
+    const handleSend = async () => {
+        if (!newMessage.trim() || sending) return;
+
+        setSending(true);
         try {
-            await fetch(`/api/wa/conversations/${conversationId}/tracking`, {
+            const res = await fetch("/api/wa/send", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tracking_mode: newMode }),
+                body: JSON.stringify({
+                    conversation_id: conversationId,
+                    message: newMessage.trim(),
+                }),
             });
-            setTrackingMode(newMode);
-            if (newMode === "tracked") {
-                await fetchMessages();
+
+            const data = await res.json();
+
+            if (data.ok) {
+                setNewMessage("");
+                // Immediately add the sent message to the UI
+                setMessages((prev) => [
+                    ...prev,
+                    {
+                        id: data.message_id,
+                        direction: "outbound",
+                        type: "text",
+                        text: newMessage.trim(),
+                        timestamp: new Date().toISOString(),
+                        meta_message_id: data.meta_message_id,
+                    },
+                ]);
+            } else {
+                setError(data.error || "Failed to send message");
             }
         } catch {
-            // ignore
+            setError("Failed to send message");
         } finally {
-            setToggling(false);
+            setSending(false);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
         }
     };
 
     return (
-        <div className="container">
+        <div className="container" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 80px)" }}>
             {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexShrink: 0 }}>
                 <div>
                     <a href="/inbox" style={{ color: "var(--text-muted)", textDecoration: "none", fontSize: "0.85rem" }}>
                         ← Back to Inbox
                     </a>
-                    <h1 style={{ fontSize: "1.3rem", marginTop: "0.5rem" }}>💬 Conversation</h1>
-                    <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>ID: {conversationId}</p>
-                </div>
-
-                <div className="toggle-container">
-                    <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                        {trackingMode === "tracked" ? "Tracking ON" : "Tracking OFF"}
-                    </span>
-                    <div
-                        className={`toggle ${trackingMode === "tracked" ? "active" : ""}`}
-                        onClick={toggling ? undefined : toggleTracking}
-                        style={{ opacity: toggling ? 0.5 : 1 }}
-                    />
+                    <h1 style={{ fontSize: "1.3rem", marginTop: "0.5rem" }}>💬 {waContactId || "Conversation"}</h1>
                 </div>
             </div>
 
-            {/* Content */}
-            {loading ? (
-                <p style={{ color: "var(--text-muted)" }}>Loading...</p>
-            ) : error ? (
-                <div className="error-card">
-                    <h3>Error</h3>
-                    <p>{error}</p>
-                </div>
-            ) : trackingMode === "off" ? (
-                <div className="card tracking-off-placeholder">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                        <path d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
-                    </svg>
-                    <h3 style={{ marginBottom: "0.5rem" }}>Tracking is Off</h3>
-                    <p style={{ fontSize: "0.9rem", maxWidth: 400 }}>
-                        Message content is not stored when tracking is disabled.
-                        Enable tracking to start storing and viewing messages.
-                    </p>
-                    <button className="btn btn-primary" onClick={toggleTracking} disabled={toggling} style={{ marginTop: "1rem" }}>
-                        Enable Tracking
-                    </button>
-                </div>
-            ) : messages.length === 0 ? (
-                <div className="card" style={{ textAlign: "center", padding: "2rem" }}>
-                    <p style={{ color: "var(--text-muted)" }}>
-                        Tracking is on. New messages will appear here.
-                    </p>
-                </div>
-            ) : (
-                <div className="card" style={{ padding: "0.5rem" }}>
-                    <div className="message-list">
-                        {messages.map((m) => (
-                            <div key={m.id} className="message-bubble message-inbound">
-                                <div>{m.text ?? `[${m.type}]`}</div>
-                                <div className="message-time">
-                                    {new Date(m.timestamp).toLocaleString()}
-                                </div>
-                            </div>
-                        ))}
+            {/* Messages Area */}
+            <div style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "1rem",
+                background: "rgba(0,0,0,0.15)",
+                borderRadius: "12px 12px 0 0",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+            }}>
+                {loading ? (
+                    <p style={{ color: "var(--text-muted)", textAlign: "center" }}>Loading messages...</p>
+                ) : error ? (
+                    <div className="error-card">
+                        <h3>Error</h3>
+                        <p>{error}</p>
                     </div>
-                </div>
-            )}
+                ) : messages.length === 0 ? (
+                    <p style={{ color: "var(--text-muted)", textAlign: "center", marginTop: "2rem" }}>
+                        No messages yet. Send a message to start the conversation!
+                    </p>
+                ) : (
+                    messages.map((m) => (
+                        <div
+                            key={m.id}
+                            style={{
+                                alignSelf: m.direction === "outbound" ? "flex-end" : "flex-start",
+                                maxWidth: "70%",
+                                padding: "0.65rem 1rem",
+                                borderRadius: m.direction === "outbound"
+                                    ? "16px 16px 4px 16px"
+                                    : "16px 16px 16px 4px",
+                                background: m.direction === "outbound"
+                                    ? "linear-gradient(135deg, #25D366, #128C7E)"
+                                    : "rgba(255,255,255,0.08)",
+                                color: m.direction === "outbound" ? "white" : "var(--text-primary)",
+                                boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                            }}
+                        >
+                            <div style={{ fontSize: "0.9rem", wordBreak: "break-word" }}>
+                                {m.text ?? `[${m.type}]`}
+                            </div>
+                            <div style={{
+                                fontSize: "0.7rem",
+                                opacity: 0.6,
+                                marginTop: "0.25rem",
+                                textAlign: m.direction === "outbound" ? "right" : "left",
+                            }}>
+                                {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                        </div>
+                    ))
+                )}
+                <div ref={messagesEndRef} />
+            </div>
+
+            {/* Compose Box */}
+            <div style={{
+                display: "flex",
+                gap: "0.5rem",
+                padding: "0.75rem 1rem",
+                background: "rgba(0,0,0,0.2)",
+                borderRadius: "0 0 12px 12px",
+                flexShrink: 0,
+            }}>
+                <textarea
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Type a message..."
+                    rows={1}
+                    style={{
+                        flex: 1,
+                        padding: "0.65rem 1rem",
+                        borderRadius: "20px",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: "rgba(255,255,255,0.05)",
+                        color: "var(--text-primary)",
+                        fontSize: "0.9rem",
+                        resize: "none",
+                        outline: "none",
+                        fontFamily: "inherit",
+                    }}
+                />
+                <button
+                    onClick={handleSend}
+                    disabled={!newMessage.trim() || sending}
+                    style={{
+                        padding: "0.65rem 1.25rem",
+                        borderRadius: "20px",
+                        border: "none",
+                        background: newMessage.trim() ? "linear-gradient(135deg, #25D366, #128C7E)" : "rgba(255,255,255,0.1)",
+                        color: "white",
+                        cursor: newMessage.trim() ? "pointer" : "default",
+                        fontWeight: 600,
+                        fontSize: "0.9rem",
+                        transition: "all 0.2s",
+                        opacity: sending ? 0.6 : 1,
+                    }}
+                >
+                    {sending ? "..." : "Send"}
+                </button>
+            </div>
         </div>
     );
 }

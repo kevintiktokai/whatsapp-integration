@@ -6,13 +6,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-    // TODO: Replace with real auth
-    const agentUserId = "agent_demo";
-
+    // TODO: Replace with real auth — for now show all conversations
     const conversations = await prisma.whatsAppConversation.findMany({
-        where: { agentUserId },
         orderBy: { lastMessageAt: "desc" },
         include: {
+            account: {
+                select: { displayPhoneNumber: true, phoneNumberId: true },
+            },
             _count: {
                 select: { messageIndex: true },
             },
@@ -27,6 +27,7 @@ export async function GET() {
         tracking_mode: c.trackingMode,
         last_message_at: c.lastMessageAt?.toISOString() ?? null,
         message_count: c._count.messageIndex,
+        account_phone: c.account?.displayPhoneNumber || c.account?.phoneNumberId,
     }));
 
     return NextResponse.json({ conversations: result });

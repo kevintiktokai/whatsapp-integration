@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
                     agentUserId: account.agentUserId,
                     whatsappAccountId: account.id,
                     waContactId: msg.waContactId,
-                    trackingMode: "off",
+                    trackingMode: "tracked",
                     lastMessageAt: new Date(parseInt(msg.timestamp) * 1000 || Date.now()),
                 },
             });

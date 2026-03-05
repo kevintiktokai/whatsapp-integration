@@ -1,9 +1,10 @@
 // lib/wa_tools/meta_stub.ts
-// Stubbed Meta Graph API calls.
-// When WA_META_LINK_ENABLED=true, these should call real Meta endpoints.
-// For now, they simulate success responses.
+// Meta Graph API calls with stub fallback.
+// When WA_META_LINK_ENABLED=true, these call real Meta endpoints.
 
-const META_LINK_ENABLED = process.env.WA_META_LINK_ENABLED === "true";
+function isMetaLinkEnabled(): boolean {
+    return process.env.WA_META_LINK_ENABLED === "true";
+}
 
 export interface TokenExchangeResult {
     access_token: string;
@@ -22,7 +23,7 @@ export interface RegisterResult {
 }
 
 export async function exchangeCodeForToken(code: string): Promise<TokenExchangeResult> {
-    if (META_LINK_ENABLED) {
+    if (isMetaLinkEnabled()) {
         const version = process.env.META_GRAPH_VERSION ?? "v21.0";
         const appId = process.env.NEXT_PUBLIC_META_APP_ID;
         const appSecret = process.env.META_APP_SECRET;
@@ -92,7 +93,7 @@ export async function exchangeCodeForToken(code: string): Promise<TokenExchangeR
  * Real call: POST https://graph.facebook.com/{version}/{wabaId}/subscribed_apps
  */
 export async function subscribeToWabaWebhooks(wabaId: string, accessToken: string): Promise<SubscribeResult> {
-    if (META_LINK_ENABLED) {
+    if (isMetaLinkEnabled()) {
         const version = process.env.META_GRAPH_VERSION ?? "v21.0";
         const url = `https://graph.facebook.com/${version}/${wabaId}/subscribed_apps`;
         const res = await fetch(url, {
@@ -118,7 +119,7 @@ export async function subscribeToWabaWebhooks(wabaId: string, accessToken: strin
  * Real call: POST https://graph.facebook.com/{version}/{phoneNumberId}/register
  */
 export async function registerPhoneNumber(phoneNumberId: string, pin: string, accessToken: string): Promise<RegisterResult> {
-    if (META_LINK_ENABLED) {
+    if (isMetaLinkEnabled()) {
         const version = process.env.META_GRAPH_VERSION ?? "v21.0";
         const url = `https://graph.facebook.com/${version}/${phoneNumberId}/register`;
         const res = await fetch(url, {
