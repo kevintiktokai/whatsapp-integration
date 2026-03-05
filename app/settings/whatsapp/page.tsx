@@ -89,12 +89,11 @@ export default function ConnectWhatsApp() {
                 setStep("readiness"); // User cancelled login or didn't fully authorize.
             }
         }, {
+            scope: "whatsapp_business_management,whatsapp_business_messaging",
             response_type: "code",
             override_default_response_type: true,
             extras: {
-                setup: {
-                    // Pre-filling setup data if needed
-                }
+                setup: {}
             }
         });
     };
