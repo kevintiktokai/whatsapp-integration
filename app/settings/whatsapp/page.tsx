@@ -89,7 +89,6 @@ export default function ConnectWhatsApp() {
                 setStep("readiness"); // User cancelled login or didn't fully authorize.
             }
         }, {
-            config_id: "OPTIONAL_EMBEDDED_SIGNUP_CONFIG_ID", // Required for complete embedded signup config
             response_type: "code",
             override_default_response_type: true,
             extras: {
