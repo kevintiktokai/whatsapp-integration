@@ -15,15 +15,15 @@ export default function TopNav() {
                         <polyline points="9 22 9 12 15 12 15 22"></polyline>
                     </svg>
                 </div>
-                <span className="font-bold text-xl tracking-tight text-emerald-900">Hazel</span>
+                <span className="font-bold text-xl tracking-tight text-emerald-900">synCRM</span>
             </Link>
 
             <div className="flex items-center gap-4">
                 <Link
                     href="/inbox"
                     className={`px-5 py-2 rounded-full border text-sm font-semibold transition-all ${pathname.startsWith('/inbox')
-                            ? 'border-emerald-600 text-emerald-700 bg-emerald-50'
-                            : 'border-emerald-200 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-50/50'
+                        ? 'border-emerald-600 text-emerald-700 bg-emerald-50'
+                        : 'border-emerald-200 text-emerald-700 hover:border-emerald-400 hover:bg-emerald-50/50'
                         }`}
                 >
                     Inbox

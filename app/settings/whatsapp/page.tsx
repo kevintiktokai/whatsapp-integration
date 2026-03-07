@@ -122,7 +122,7 @@ export default function ConnectWhatsApp() {
                     WhatsApp <span className="text-emerald-600 font-bold">Integration</span>
                 </h1>
                 <p className="text-lg text-slate-600 max-w-2xl mx-auto">
-                    Connect your WhatsApp Business account securely through Meta to start managing client conversations directly in Hazel.
+                    Connect your WhatsApp Business account securely through Meta to start managing client conversations directly in synCRM.
                 </p>
             </div>
 
@@ -149,7 +149,7 @@ export default function ConnectWhatsApp() {
 
                         <p className="text-slate-600 mb-8 leading-relaxed">
                             {isConnected
-                                ? `You are currently connected as ${displayedNumber}. Hazel is securely routing your WhatsApp messages.`
+                                ? `You are currently connected as ${displayedNumber}. synCRM is securely routing your WhatsApp messages.`
                                 : "Click the button below to launch Meta's secure Embedded Signup flow. It only takes a minute to link your number."}
                         </p>
 

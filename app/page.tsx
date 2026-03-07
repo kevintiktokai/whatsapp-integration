@@ -15,7 +15,7 @@ export default function Home() {
 
           <p className="text-lg text-slate-600 mb-12 leading-relaxed max-w-xl">
             Managing property inquiries shouldn't be a roadblock to closing deals.
-            Hazel CRM streams your journey through AI-powered WhatsApp tools, bringing your entire
+            synCRM streams your journey through AI-powered WhatsApp tools, bringing your entire
             client communication into one unified, intelligent hub.
           </p>
 

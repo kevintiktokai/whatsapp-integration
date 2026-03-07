@@ -37,7 +37,7 @@ export default function Inbox() {
                         Messages
                     </h1>
                     <p className="text-slate-600">
-                        Your WhatsApp conversations flowing directly into Hazel.
+                        Your WhatsApp conversations flowing directly into synCRM.
                     </p>
                 </div>
             </div>
