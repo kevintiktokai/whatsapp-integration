@@ -89,19 +89,60 @@ export default function ConnectWhatsApp() {
         setStep("logging_in");
         setError(null);
 
-        (window as any).FB.login((response: any) => {
-            if (response.authResponse) {
-                const code = response.authResponse.code;
-                fetchAvailableNumbers(code);
-            } else {
-                setStep("ready");
-            }
-        }, {
-            scope: "whatsapp_business_management,whatsapp_business_messaging",
+        const configId = process.env.NEXT_PUBLIC_META_CONFIG_ID;
+
+        const loginOptions: any = {
             response_type: "code",
             override_default_response_type: true,
             extras: { setup: {} }
-        });
+        };
+
+        if (configId) {
+            loginOptions.config_id = configId;
+        } else {
+            loginOptions.scope = "whatsapp_business_management,whatsapp_business_messaging";
+        }
+
+        (window as any).FB.login((response: any) => {
+            if (response.authResponse) {
+                const code = response.authResponse.code;
+
+                // If using configId, the popup natively handled WABA/number selection
+                // (which is the actual Embedded Signup flow you saw in the screenshots)
+                if (configId) {
+                    finalizeEmbeddedSignup(code);
+                } else {
+                    // Fallback to custom number picker if standard login was used
+                    fetchAvailableNumbers(code);
+                }
+            } else {
+                setStep("ready");
+            }
+        }, loginOptions);
+    };
+
+    // Step 2 (Embedded Signup): Complete flow from code
+    const finalizeEmbeddedSignup = async (code: string) => {
+        setStep("connecting");
+        try {
+            const res = await fetch("/api/wa/onboarding/complete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code }),
+            });
+
+            const data = await res.json();
+            if (data.ok) {
+                setStep("success");
+                fetchAccounts();
+            } else {
+                setError(data.error || "Failed to complete connection automatically.");
+                setStep("error");
+            }
+        } catch (err) {
+            setError((err as Error).message || "Connection failed.");
+            setStep("error");
+        }
     };
 
     // Step 2: Fetch available WhatsApp numbers
@@ -506,7 +547,7 @@ export default function ConnectWhatsApp() {
                 <div className="card" style={{ maxWidth: 600, borderColor: "rgba(37, 211, 102, 0.4)" }}>
                     <h2 style={{ color: "#25D366", marginBottom: "0.5rem" }}>✅ WhatsApp Connected!</h2>
                     <p style={{ color: "var(--text-secondary)", marginBottom: "1rem", fontSize: "0.9rem" }}>
-                        {selectedNumber?.display_phone_number} is now linked. New conversations will appear in your Inbox.
+                        {selectedNumber?.display_phone_number || "Your WhatsApp Business account"} is now linked. New conversations will appear in your Inbox.
                     </p>
                     <div style={{ display: "flex", gap: "0.75rem" }}>
                         <a href="/inbox" className="btn btn-primary">Go to Inbox →</a>
