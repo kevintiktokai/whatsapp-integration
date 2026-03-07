@@ -1,22 +1,10 @@
 "use client";
-// app/settings/whatsapp/page.tsx
-// Connect WhatsApp — 3-step flow:
-//   1. Facebook Login → access Meta account
-//   2. Select number (auto-detected) OR enter manually
-//   3. Connected!
+import React, { useState, useEffect } from 'react';
+import {
+    MessageSquare, RefreshCw, Eye, Copy, Phone
+} from 'lucide-react';
 
-import { useState, useEffect } from "react";
-
-type WizardStep = "ready" | "logging_in" | "select_number" | "connecting" | "success" | "error";
-
-interface WhatsAppNumber {
-    waba_id: string;
-    waba_name: string;
-    phone_number_id: string;
-    display_phone_number: string;
-    verified_name: string;
-    quality_rating: string;
-}
+type WizardStep = "ready" | "logging_in" | "connecting" | "success" | "error";
 
 interface ConnectedAccount {
     id: string;
@@ -33,18 +21,9 @@ export default function ConnectWhatsApp() {
     const [fbLoaded, setFbLoaded] = useState(false);
     const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
 
-    // Number selection state
-    const [availableNumbers, setAvailableNumbers] = useState<WhatsAppNumber[]>([]);
-    const [accessToken, setAccessToken] = useState<string>("");
-    const [selectedNumber, setSelectedNumber] = useState<WhatsAppNumber | null>(null);
-    const [connecting, setConnecting] = useState(false);
-
-    // Manual entry state
-    const [showManualEntry, setShowManualEntry] = useState(false);
-    const [manualPhone, setManualPhone] = useState("");
-    const [manualWabaId, setManualWabaId] = useState("");
-    const [manualPhoneNumberId, setManualPhoneNumberId] = useState("");
-    const [manualAccessToken, setManualAccessToken] = useState("");
+    // Preview state
+    const [welcomeMsg, setWelcomeMsg] = useState("Hello! Welcome to our service. How can we help you today?");
+    const [showToken, setShowToken] = useState(false);
 
     // Initialize Facebook SDK
     useEffect(() => {
@@ -78,10 +57,9 @@ export default function ConnectWhatsApp() {
         } catch { /* silently fail */ }
     };
 
-    // Step 1: Facebook Login
     const handleFacebookLogin = () => {
         if (!fbLoaded || !(window as any).FB) {
-            setError("Facebook SDK is still loading. Please try again.");
+            setError("Facebook SDK is still loading.");
             setStep("error");
             return;
         }
@@ -106,22 +84,13 @@ export default function ConnectWhatsApp() {
         (window as any).FB.login((response: any) => {
             if (response.authResponse) {
                 const code = response.authResponse.code;
-
-                // If using configId, the popup natively handled WABA/number selection
-                // (which is the actual Embedded Signup flow you saw in the screenshots)
-                if (configId) {
-                    finalizeEmbeddedSignup(code);
-                } else {
-                    // Fallback to custom number picker if standard login was used
-                    fetchAvailableNumbers(code);
-                }
+                finalizeEmbeddedSignup(code);
             } else {
                 setStep("ready");
             }
         }, loginOptions);
     };
 
-    // Step 2 (Embedded Signup): Complete flow from code
     const finalizeEmbeddedSignup = async (code: string) => {
         setStep("connecting");
         try {
@@ -145,427 +114,174 @@ export default function ConnectWhatsApp() {
         }
     };
 
-    // Step 2: Fetch available WhatsApp numbers
-    const fetchAvailableNumbers = async (code: string) => {
-        try {
-            const res = await fetch("/api/wa/numbers", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ code }),
-            });
+    const connectedAccount = accounts.length > 0 ? accounts[0] : null;
+    const isConnected = !!connectedAccount;
+    const isWorking = step === "logging_in" || step === "connecting";
 
-            const data = await res.json();
-
-            if (data.ok) {
-                setAccessToken(data.access_token);
-                if (data.numbers?.length > 0) {
-                    setAvailableNumbers(data.numbers);
-                    setShowManualEntry(false);
-                } else {
-                    // No numbers found — show manual entry by default
-                    setAvailableNumbers([]);
-                    setShowManualEntry(true);
-                }
-                setStep("select_number");
-            } else {
-                // Token exchange worked but no WABAs — still allow manual entry
-                setAccessToken(data.access_token || "");
-                setAvailableNumbers([]);
-                setShowManualEntry(true);
-                setStep("select_number");
-            }
-        } catch (err) {
-            setError((err as Error).message || "Failed to fetch WhatsApp numbers.");
-            setStep("error");
-        }
-    };
-
-    // Connect a detected number
-    const connectNumber = async (number: WhatsAppNumber) => {
-        setSelectedNumber(number);
-        setConnecting(true);
-        setStep("connecting");
-
-        try {
-            const res = await fetch("/api/wa/connect", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    access_token: accessToken,
-                    phone_number_id: number.phone_number_id,
-                    waba_id: number.waba_id,
-                }),
-            });
-
-            const data = await res.json();
-            if (data.ok) {
-                setStep("success");
-                fetchAccounts();
-            } else {
-                setError(data.error || "Failed to connect this number.");
-                setStep("error");
-            }
-        } catch (err) {
-            setError((err as Error).message || "Connection failed.");
-            setStep("error");
-        } finally {
-            setConnecting(false);
-        }
-    };
-
-    // Connect a manually entered number
-    const connectManualNumber = async () => {
-        if (!manualPhoneNumberId || !manualWabaId || !manualAccessToken) {
-            setError("Please fill in all required fields.");
-            return;
-        }
-
-        setSelectedNumber({
-            waba_id: manualWabaId,
-            waba_name: "Manual",
-            phone_number_id: manualPhoneNumberId,
-            display_phone_number: manualPhone || manualPhoneNumberId,
-            verified_name: "",
-            quality_rating: "",
-        });
-        setConnecting(true);
-        setStep("connecting");
-
-        try {
-            const res = await fetch("/api/wa/connect", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    access_token: manualAccessToken,
-                    phone_number_id: manualPhoneNumberId,
-                    waba_id: manualWabaId,
-                }),
-            });
-
-            const data = await res.json();
-            if (data.ok) {
-                setStep("success");
-                fetchAccounts();
-            } else {
-                setError(data.error || "Failed to connect this number.");
-                setStep("error");
-            }
-        } catch (err) {
-            setError((err as Error).message || "Connection failed.");
-            setStep("error");
-        } finally {
-            setConnecting(false);
-        }
-    };
-
-    const resetWizard = () => {
-        setStep("ready");
-        setError(null);
-        setAvailableNumbers([]);
-        setSelectedNumber(null);
-        setAccessToken("");
-        setShowManualEntry(false);
-        setManualPhone("");
-        setManualWabaId("");
-        setManualPhoneNumberId("");
-        setManualAccessToken("");
-    };
-
-    const inputStyle = {
-        width: "100%",
-        padding: "0.6rem 0.8rem",
-        borderRadius: "6px",
-        border: "1px solid rgba(255,255,255,0.15)",
-        background: "rgba(255,255,255,0.05)",
-        color: "var(--text-primary)",
-        fontSize: "0.9rem",
-        outline: "none",
-        fontFamily: "inherit",
-    };
+    const displayedNumber = connectedAccount?.displayPhoneNumber || "+1 (555) 000-1234";
+    const displayedWaba = connectedAccount?.wabaId || "88273641...";
+    const displayedPhoneId = connectedAccount?.phoneNumberId || "10928374...";
 
     return (
-        <div className="container">
-            <div className="page-header">
-                <h1>Connect WhatsApp</h1>
-                <p>Link your WhatsApp Business number to start receiving messages.</p>
-            </div>
-
-            {/* ─── Connected Accounts ─── */}
-            {accounts.length > 0 && (
-                <div className="card" style={{ marginBottom: "1.5rem" }}>
-                    <h2 style={{ marginBottom: "1rem", fontSize: "1.1rem" }}>📱 Connected Numbers</h2>
-                    {accounts.map((account) => (
-                        <div
-                            key={account.id}
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                padding: "0.75rem",
-                                background: "rgba(37, 211, 102, 0.08)",
-                                borderRadius: "8px",
-                                marginBottom: "0.5rem",
-                                border: "1px solid rgba(37, 211, 102, 0.2)",
-                            }}
-                        >
-                            <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>
-                                {account.displayPhoneNumber || account.phoneNumberId}
-                            </span>
-                            <span style={{
-                                marginLeft: "0.75rem", fontSize: "0.75rem",
-                                background: "rgba(37, 211, 102, 0.2)", color: "#25D366",
-                                padding: "2px 8px", borderRadius: "4px",
-                            }}>
-                                {account.status}
-                            </span>
+        <div>
+            {/* 3. STATUS HERO */}
+            <section className="mb-8 bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                    <div className="relative">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isConnected ? 'bg-emerald-100' : 'bg-zinc-100'}`}>
+                            <Phone className={`${isConnected ? 'text-emerald-600' : 'text-zinc-400'} w-6 h-6`} />
                         </div>
-                    ))}
-                </div>
-            )}
-
-            {/* ─── Step 1: Ready ─── */}
-            {step === "ready" && (
-                <div className="card" style={{ maxWidth: 600 }}>
-                    <h2 style={{ marginBottom: "0.5rem", fontSize: "1.1rem" }}>🔗 Connect Your WhatsApp Number</h2>
-                    <p style={{ color: "var(--text-secondary)", marginBottom: "0.5rem", fontSize: "0.9rem" }}>
-                        Log in with Facebook to find your WhatsApp Business numbers automatically.
-                    </p>
-                    <p style={{ color: "var(--text-muted)", marginBottom: "1.25rem", fontSize: "0.8rem" }}>
-                        You can also enter your number details manually if it&apos;s not linked to your Facebook account.
-                    </p>
-
-                    <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                        <button
-                            className="btn"
-                            style={{
-                                backgroundColor: "#1877F2", color: "white", padding: "10px 20px",
-                                fontWeight: "bold", border: "none", borderRadius: "5px", cursor: "pointer",
-                                display: "flex", alignItems: "center", gap: "8px"
-                            }}
-                            disabled={!fbLoaded}
-                            onClick={handleFacebookLogin}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white">
-                                <path d="M22.675 0H1.325C.593 0 0 .593 0 1.325v21.351C0 23.407.593 24 1.325 24H12.82v-9.294H9.692v-3.622h3.128V8.413c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12V24h6.116c.73 0 1.323-.593 1.323-1.325V1.325C24 .593 23.407 0 22.675 0z" />
-                            </svg>
-                            {fbLoaded ? "Auto-detect via Facebook" : "Loading SDK..."}
-                        </button>
-
-                        <button
-                            className="btn btn-secondary"
-                            style={{ padding: "10px 20px" }}
-                            onClick={() => { setShowManualEntry(true); setStep("select_number"); }}
-                        >
-                            Enter Manually
-                        </button>
+                        {isConnected && (
+                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full animate-pulse" />
+                        )}
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold">WhatsApp Business API</h1>
+                        <p className="text-zinc-500 text-sm">
+                            {isConnected ? (
+                                <>Connected as <span className="font-mono text-emerald-600">{displayedNumber}</span></>
+                            ) : (
+                                "Not currently connected"
+                            )}
+                        </p>
                     </div>
                 </div>
-            )}
-
-            {/* ─── Logging In ─── */}
-            {step === "logging_in" && (
-                <div className="card" style={{ maxWidth: 600, textAlign: "center", padding: "2rem" }}>
-                    <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>🔄 Connecting to Meta...</h2>
-                    <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                        Please complete the Facebook login in the popup window.
-                    </p>
-                </div>
-            )}
-
-            {/* ─── Step 2: Select Number OR Manual Entry ─── */}
-            {step === "select_number" && (
-                <div className="card" style={{ maxWidth: 600 }}>
-                    <h2 style={{ marginBottom: "0.5rem", fontSize: "1.1rem" }}>📱 Connect a WhatsApp Number</h2>
-
-                    {/* Auto-detected numbers */}
-                    {availableNumbers.length > 0 && !showManualEntry && (
-                        <>
-                            <p style={{ color: "var(--text-secondary)", marginBottom: "1rem", fontSize: "0.9rem" }}>
-                                We found {availableNumbers.length} number{availableNumbers.length > 1 ? "s" : ""} on your Meta account. Select one to connect:
-                            </p>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                                {availableNumbers.map((num) => (
-                                    <button
-                                        key={num.phone_number_id}
-                                        onClick={() => connectNumber(num)}
-                                        disabled={connecting}
-                                        style={{
-                                            display: "flex", alignItems: "center", justifyContent: "space-between",
-                                            padding: "1rem 1.25rem", background: "rgba(255,255,255,0.04)",
-                                            border: "1px solid rgba(255,255,255,0.12)", borderRadius: "10px",
-                                            cursor: "pointer", transition: "all 0.2s", textAlign: "left",
-                                            color: "inherit", width: "100%",
-                                        }}
-                                        onMouseOver={(e) => {
-                                            e.currentTarget.style.borderColor = "#25D366";
-                                            e.currentTarget.style.background = "rgba(37, 211, 102, 0.06)";
-                                        }}
-                                        onMouseOut={(e) => {
-                                            e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
-                                            e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                                        }}
-                                    >
-                                        <div>
-                                            <div style={{ fontWeight: 600, fontSize: "1rem", marginBottom: "0.25rem" }}>
-                                                📞 {num.display_phone_number}
-                                            </div>
-                                            {num.verified_name && (
-                                                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{num.verified_name}</div>
-                                            )}
-                                            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-                                                WABA: {num.waba_name}
-                                            </div>
-                                        </div>
-                                        <div style={{
-                                            padding: "6px 14px", background: "linear-gradient(135deg, #25D366, #128C7E)",
-                                            color: "white", borderRadius: "6px", fontSize: "0.85rem", fontWeight: 600, flexShrink: 0,
-                                        }}>
-                                            Connect
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-
-                            <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: "1.25rem", paddingTop: "1rem" }}>
-                                <button
-                                    style={{
-                                        background: "none", border: "none", color: "var(--text-muted)",
-                                        cursor: "pointer", fontSize: "0.85rem", textDecoration: "underline",
-                                    }}
-                                    onClick={() => setShowManualEntry(true)}
-                                >
-                                    My number isn&apos;t listed — enter details manually
-                                </button>
-                            </div>
-                        </>
+                <div className="flex gap-3">
+                    {error && (
+                        <div className="text-red-500 text-sm flex items-center">{error}</div>
                     )}
-
-                    {/* Manual Entry Form */}
-                    {showManualEntry && (
-                        <>
-                            <p style={{ color: "var(--text-secondary)", marginBottom: "1.25rem", fontSize: "0.9rem" }}>
-                                {availableNumbers.length === 0
-                                    ? "No WhatsApp numbers were auto-detected. Please enter your details manually."
-                                    : "Enter your WhatsApp Business details below:"}
-                            </p>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                                <div>
-                                    <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                                        WhatsApp Business Phone Number
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. +1 555 123 4567"
-                                        value={manualPhone}
-                                        onChange={(e) => setManualPhone(e.target.value)}
-                                        style={inputStyle}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                                        Phone Number ID <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>(from Meta Developer Console)</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. 1061901597001461"
-                                        value={manualPhoneNumberId}
-                                        onChange={(e) => setManualPhoneNumberId(e.target.value)}
-                                        style={inputStyle}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                                        WABA ID <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>(WhatsApp Business Account ID)</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. 1970789736851025"
-                                        value={manualWabaId}
-                                        onChange={(e) => setManualWabaId(e.target.value)}
-                                        style={inputStyle}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: "block", fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "0.3rem" }}>
-                                        Access Token <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>(System User or temporary token)</span>
-                                    </label>
-                                    <input
-                                        type="password"
-                                        placeholder="Paste your access token here"
-                                        value={manualAccessToken}
-                                        onChange={(e) => setManualAccessToken(e.target.value)}
-                                        style={inputStyle}
-                                    />
-                                </div>
-                                <button
-                                    className="btn"
-                                    style={{
-                                        background: "linear-gradient(135deg, #25D366, #128C7E)",
-                                        color: "white", padding: "10px 20px", fontWeight: "bold",
-                                        border: "none", borderRadius: "6px", cursor: "pointer", marginTop: "0.5rem",
-                                    }}
-                                    onClick={connectManualNumber}
-                                    disabled={connecting || !manualPhoneNumberId || !manualWabaId || !manualAccessToken}
-                                >
-                                    Connect This Number
-                                </button>
-                            </div>
-
-                            {availableNumbers.length > 0 && (
-                                <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: "1.25rem", paddingTop: "1rem" }}>
-                                    <button
-                                        style={{
-                                            background: "none", border: "none", color: "var(--text-muted)",
-                                            cursor: "pointer", fontSize: "0.85rem", textDecoration: "underline",
-                                        }}
-                                        onClick={() => setShowManualEntry(false)}
-                                    >
-                                        ← Back to auto-detected numbers
-                                    </button>
-                                </div>
-                            )}
-                        </>
+                    {step === "success" && (
+                        <div className="text-emerald-500 text-sm font-medium flex items-center px-3">Connection successful!</div>
                     )}
-
-                    <button className="btn btn-secondary" onClick={resetWizard} style={{ marginTop: "1.25rem" }}>
-                        ← Start Over
+                    <button
+                        onClick={handleFacebookLogin}
+                        disabled={isWorking || !fbLoaded}
+                        className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-all shadow-md flex items-center gap-2 ${isWorking ? 'bg-zinc-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-100'
+                            }`}
+                    >
+                        <RefreshCw size={16} className={isWorking ? "animate-spin" : ""} />
+                        {isWorking ? "Connecting..." : (isConnected ? "Reconnect Account" : "Connect via Facebook")}
                     </button>
                 </div>
-            )}
+            </section>
 
-            {/* ─── Connecting ─── */}
-            {step === "connecting" && selectedNumber && (
-                <div className="card" style={{ maxWidth: 600, textAlign: "center", padding: "2rem" }}>
-                    <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>🔄 Connecting {selectedNumber.display_phone_number}...</h2>
-                    <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                        Subscribing to webhooks and saving credentials...
-                    </p>
-                </div>
-            )}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
 
-            {/* ─── Success ─── */}
-            {step === "success" && (
-                <div className="card" style={{ maxWidth: 600, borderColor: "rgba(37, 211, 102, 0.4)" }}>
-                    <h2 style={{ color: "#25D366", marginBottom: "0.5rem" }}>✅ WhatsApp Connected!</h2>
-                    <p style={{ color: "var(--text-secondary)", marginBottom: "1rem", fontSize: "0.9rem" }}>
-                        {selectedNumber?.display_phone_number || "Your WhatsApp Business account"} is now linked. New conversations will appear in your Inbox.
-                    </p>
-                    <div style={{ display: "flex", gap: "0.75rem" }}>
-                        <a href="/inbox" className="btn btn-primary">Go to Inbox →</a>
-                        <button className="btn btn-secondary" onClick={resetWizard}>Connect Another Number</button>
+                {/* 4. CONFIGURATION COLUMN */}
+                <div className="lg:col-span-7 space-y-6">
+
+                    {/* API Credentials Card */}
+                    <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
+                        <div className="p-6 border-b border-zinc-100 bg-zinc-50/50">
+                            <h3 className="font-semibold text-zinc-900">API Credentials</h3>
+                        </div>
+                        <div className="p-6 space-y-5">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">Temporary Access Token</label>
+                                <div className="relative">
+                                    <input
+                                        type={showToken ? "text" : "password"}
+                                        value={isConnected ? "EAAl7ZA7ZC8... (Managed securely on server)" : ""}
+                                        readOnly
+                                        placeholder="Connect account to view"
+                                        className="w-full p-3 pr-24 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all font-mono text-sm"
+                                    />
+                                    <div className="absolute right-2 top-1.5 flex gap-1">
+                                        <button onClick={() => setShowToken(!showToken)} className="p-1.5 hover:bg-zinc-200 rounded-md text-zinc-500 transition-colors"><Eye size={16} /></button>
+                                        <button className="p-1.5 hover:bg-zinc-200 rounded-md text-zinc-500 transition-colors"><Copy size={16} /></button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">Phone Number ID</label>
+                                    <input type="text" readOnly placeholder="10928374..." value={isConnected ? displayedPhoneId : ""} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none text-sm font-mono" />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">WABA ID</label>
+                                    <input type="text" readOnly placeholder="88273641..." value={isConnected ? displayedWaba : ""} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none text-sm font-mono" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Webhook Configuration */}
+                    <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden">
+                        <div className="p-6 border-b border-zinc-100 bg-zinc-50/50 flex justify-between items-center">
+                            <h3 className="font-semibold text-zinc-900">Webhook Configuration</h3>
+                            {!isConnected && <span className="text-[10px] px-2 py-1 bg-amber-100 text-amber-700 rounded-full font-bold uppercase">Setup Required</span>}
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">Callback URL</label>
+                                <div className="flex gap-2">
+                                    <input type="text" readOnly value="https://whatsapp-integration-hazel.vercel.app/api/webhooks/whatsapp" className="flex-1 p-3 bg-zinc-100 border border-zinc-200 rounded-xl text-zinc-500 text-sm italic" />
+                                    <button className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-sm font-medium hover:bg-zinc-800 transition-colors" onClick={() => navigator.clipboard.writeText('https://whatsapp-integration-hazel.vercel.app/api/webhooks/whatsapp')}>Copy</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            )}
 
-            {/* ─── Error ─── */}
-            {step === "error" && error && (
-                <div style={{ maxWidth: 600 }}>
-                    <div className="error-card" style={{ marginBottom: "1rem" }}>
-                        <h3>Connection Failed</h3>
-                        <p>{error}</p>
+                {/* 5. PREVIEW COLUMN */}
+                <div className="lg:col-span-5 hidden lg:block">
+                    <div className="sticky top-24">
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className="font-semibold text-zinc-900">Message Preview</h3>
+                            <p className="text-xs text-zinc-500">Real-time update</p>
+                        </div>
+
+                        {/* iPhone Mockup */}
+                        <div className="relative mx-auto w-[290px] h-[580px] bg-zinc-900 rounded-[3rem] border-[7px] border-zinc-800 shadow-2xl overflow-hidden">
+                            {/* Speaker Grill */}
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-zinc-800 rounded-b-2xl z-20" />
+
+                            {/* Screen Content */}
+                            <div className="h-full w-full bg-[#E5DDD5] flex flex-col">
+                                {/* WhatsApp Header */}
+                                <div className="bg-[#075E54] p-4 pt-10 text-white flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-zinc-300 rounded-full" />
+                                    <div>
+                                        <p className="text-sm font-bold leading-none">Hazel Support</p>
+                                        <p className="text-[10px] opacity-80">online</p>
+                                    </div>
+                                </div>
+
+                                {/* Chat Area */}
+                                <div className="flex-1 p-4 space-y-4">
+                                    <div className="bg-white p-3 pt-2 rounded-lg rounded-tl-none shadow-sm text-xs max-w-[85%] relative whitespace-pre-wrap">
+                                        {welcomeMsg}
+                                        <div className="text-[9px] text-zinc-400 text-right mt-1">12:45 PM</div>
+                                    </div>
+                                </div>
+
+                                {/* Input Bar */}
+                                <div className="p-2 bg-zinc-100 flex gap-2 items-center">
+                                    <div className="flex-1 h-8 bg-white rounded-full border border-zinc-200 px-3 flex items-center text-[10px] text-zinc-400">
+                                        Type a message
+                                    </div>
+                                    <div className="w-8 h-8 bg-[#128C7E] rounded-full flex items-center justify-center text-white shrink-0">
+                                        <MessageSquare size={14} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Live Editor for Preview */}
+                        <div className="mt-6">
+                            <label className="text-xs font-bold text-zinc-400 uppercase">Edit Welcome Message</label>
+                            <textarea
+                                className="w-full mt-2 p-3 bg-white border border-zinc-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                                rows={2}
+                                value={welcomeMsg}
+                                onChange={(e) => setWelcomeMsg(e.target.value)}
+                            />
+                        </div>
                     </div>
-                    <button className="btn btn-secondary" onClick={resetWizard}>Start Over</button>
                 </div>
-            )}
+
+            </div>
         </div>
     );
 }
