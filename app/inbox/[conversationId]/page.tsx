@@ -4,6 +4,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, Send } from "lucide-react";
 
 interface Message {
     id: string;
@@ -46,12 +48,10 @@ export default function ChatThread() {
 
     useEffect(() => {
         fetchMessages();
-        // Auto-refresh every 5 seconds
         const interval = setInterval(fetchMessages, 5000);
         return () => clearInterval(interval);
     }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Scroll to bottom when new messages arrive
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
@@ -74,7 +74,6 @@ export default function ChatThread() {
 
             if (data.ok) {
                 setNewMessage("");
-                // Immediately add the sent message to the UI
                 setMessages((prev) => [
                     ...prev,
                     {
@@ -104,120 +103,79 @@ export default function ChatThread() {
     };
 
     return (
-        <div className="container" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 80px)" }}>
+        <div className="max-w-4xl mx-auto px-4 mt-8 lg:mt-16 flex flex-col h-[calc(100vh-140px)]">
             {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexShrink: 0 }}>
-                <div>
-                    <a href="/inbox" style={{ color: "var(--text-muted)", textDecoration: "none", fontSize: "0.85rem" }}>
-                        ← Back to Inbox
-                    </a>
-                    <h1 style={{ fontSize: "1.3rem", marginTop: "0.5rem" }}>💬 {waContactId || "Conversation"}</h1>
+            <div className="pb-6 border-b border-slate-200 flex-shrink-0">
+                <Link href="/inbox" className="text-slate-500 hover:text-emerald-600 font-semibold text-sm flex items-center gap-2 mb-3 transition-colors">
+                    <ArrowLeft className="w-4 h-4" /> Back to Inbox
+                </Link>
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 font-bold">
+                        {waContactId ? waContactId.substring(0, 2) : "?"}
+                    </div>
+                    <h1 className="text-2xl font-bold text-slate-900">{waContactId || "Loading Conversation..."}</h1>
                 </div>
             </div>
 
             {/* Messages Area */}
-            <div style={{
-                flex: 1,
-                overflowY: "auto",
-                padding: "1rem",
-                background: "rgba(0,0,0,0.15)",
-                borderRadius: "12px 12px 0 0",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.5rem",
-            }}>
+            <div className="flex-1 overflow-y-auto w-full pt-6 pb-6 px-2 flex flex-col space-y-4">
                 {loading ? (
-                    <p style={{ color: "var(--text-muted)", textAlign: "center" }}>Loading messages...</p>
+                    <p className="text-slate-500 text-center py-10 font-medium">Loading messages...</p>
                 ) : error ? (
-                    <div className="error-card">
-                        <h3>Error</h3>
-                        <p>{error}</p>
+                    <div className="bg-red-50 border border-red-100 p-4 rounded-2xl text-red-700 text-center">
+                        {error}
                     </div>
                 ) : messages.length === 0 ? (
-                    <p style={{ color: "var(--text-muted)", textAlign: "center", marginTop: "2rem" }}>
-                        No messages yet. Send a message to start the conversation!
-                    </p>
+                    <div className="flex flex-col items-center justify-center p-12 text-slate-400">
+                        <p>No messages yet.</p>
+                        <p className="text-sm">Send a message to start the conversation!</p>
+                    </div>
                 ) : (
-                    messages.map((m) => (
-                        <div
-                            key={m.id}
-                            style={{
-                                alignSelf: m.direction === "outbound" ? "flex-end" : "flex-start",
-                                maxWidth: "70%",
-                                padding: "0.65rem 1rem",
-                                borderRadius: m.direction === "outbound"
-                                    ? "16px 16px 4px 16px"
-                                    : "16px 16px 16px 4px",
-                                background: m.direction === "outbound"
-                                    ? "linear-gradient(135deg, #25D366, #128C7E)"
-                                    : "rgba(255,255,255,0.08)",
-                                color: m.direction === "outbound" ? "white" : "var(--text-primary)",
-                                boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                            }}
-                        >
-                            <div style={{ fontSize: "0.9rem", wordBreak: "break-word" }}>
-                                {m.text ?? `[${m.type}]`}
+                    messages.map((m) => {
+                        const isOutbound = m.direction === "outbound";
+                        return (
+                            <div
+                                key={m.id}
+                                className={`flex flex-col max-w-[75%] px-5 py-3 shadow-sm ${isOutbound
+                                        ? "self-end bg-emerald-600 text-white rounded-2xl rounded-tr-md"
+                                        : "self-start bg-white text-slate-800 border border-slate-100 rounded-2xl rounded-tl-md"
+                                    }`}
+                            >
+                                <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">
+                                    {m.text ?? <span className="italic opacity-80">[{m.type}]</span>}
+                                </div>
+                                <div className={`text-[11px] mt-1.5 ${isOutbound ? 'text-emerald-100 text-right' : 'text-slate-400 text-left'}`}>
+                                    {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </div>
                             </div>
-                            <div style={{
-                                fontSize: "0.7rem",
-                                opacity: 0.6,
-                                marginTop: "0.25rem",
-                                textAlign: m.direction === "outbound" ? "right" : "left",
-                            }}>
-                                {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
                 <div ref={messagesEndRef} />
             </div>
 
             {/* Compose Box */}
-            <div style={{
-                display: "flex",
-                gap: "0.5rem",
-                padding: "0.75rem 1rem",
-                background: "rgba(0,0,0,0.2)",
-                borderRadius: "0 0 12px 12px",
-                flexShrink: 0,
-            }}>
-                <textarea
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Type a message..."
-                    rows={1}
-                    style={{
-                        flex: 1,
-                        padding: "0.65rem 1rem",
-                        borderRadius: "20px",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        background: "rgba(255,255,255,0.05)",
-                        color: "var(--text-primary)",
-                        fontSize: "0.9rem",
-                        resize: "none",
-                        outline: "none",
-                        fontFamily: "inherit",
-                    }}
-                />
-                <button
-                    onClick={handleSend}
-                    disabled={!newMessage.trim() || sending}
-                    style={{
-                        padding: "0.65rem 1.25rem",
-                        borderRadius: "20px",
-                        border: "none",
-                        background: newMessage.trim() ? "linear-gradient(135deg, #25D366, #128C7E)" : "rgba(255,255,255,0.1)",
-                        color: "white",
-                        cursor: newMessage.trim() ? "pointer" : "default",
-                        fontWeight: 600,
-                        fontSize: "0.9rem",
-                        transition: "all 0.2s",
-                        opacity: sending ? 0.6 : 1,
-                    }}
-                >
-                    {sending ? "..." : "Send"}
-                </button>
+            <div className="pt-4 border-t border-slate-200 flex-shrink-0 pb-8">
+                <div className="bg-white border text-md border-slate-200 rounded-[2rem] p-2 flex items-center shadow-sm focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-500 transition-all">
+                    <textarea
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Type a message..."
+                        rows={1}
+                        className="flex-1 bg-transparent px-4 py-2 outline-none resize-none max-h-32 text-slate-800 placeholder-slate-400"
+                    />
+                    <button
+                        onClick={handleSend}
+                        disabled={!newMessage.trim() || sending}
+                        className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all ${newMessage.trim() && !sending
+                                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-200"
+                                : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                            }`}
+                    >
+                        <Send className="w-5 h-5 ml-1" />
+                    </button>
+                </div>
             </div>
         </div>
     );
