@@ -65,10 +65,7 @@ export default function ConnectWhatsApp() {
         const loginOptions: any = {
             response_type: "code",
             override_default_response_type: true,
-            extras: {
-                feature: "whatsapp_embedded_signup",
-                setup: {}
-            }
+            extras: { setup: {} }
         };
 
         if (configId) {
