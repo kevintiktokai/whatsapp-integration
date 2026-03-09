@@ -50,7 +50,12 @@ export async function exchangeCodeForToken(code: string): Promise<TokenExchangeR
             const waScope = scopes.find((s: any) => s.scope === "whatsapp_business_management");
             if (waScope && waScope.target_ids && waScope.target_ids.length > 0) {
                 waba_id = waScope.target_ids[0];
+            } else {
+                console.error("[META API] debug_token missing target_ids or whatsapp_business_management scope:", JSON.stringify(debugData));
             }
+        } else {
+            const errBody = await debugRes.text();
+            console.error("[META API] debug_token failed:", errBody);
         }
 
         // 3. Extract Phone Number
@@ -65,7 +70,12 @@ export async function exchangeCodeForToken(code: string): Promise<TokenExchangeR
                 if (phoneData.data && phoneData.data.length > 0) {
                     phone_number_id = phoneData.data[0].id;
                     display_phone_number = phoneData.data[0].display_phone_number;
+                } else {
+                    console.error("[META API] No phone numbers found for WABA", waba_id, "Data:", JSON.stringify(phoneData));
                 }
+            } else {
+                const errBody = await phoneRes.text();
+                console.error(`[META API] Failed to fetch phone numbers for WABA ${waba_id}:`, errBody);
             }
         }
 

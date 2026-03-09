@@ -111,8 +111,8 @@ export function classifyMetaError(
         class: "UNKNOWN",
         retryable: false,
         user_action: "CONTACT_SUPPORT",
-        display_title: "Something went wrong",
-        display_body: "An unexpected error occurred during setup. Please contact support with the details below.",
+        display_title: "Setup Error",
+        display_body: errorMessage ? `Details: ${errorMessage}` : "An unexpected error occurred during setup.",
         raw: rawPayload,
     };
 }

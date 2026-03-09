@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
         const phone_number_id = tokenResult.phone_number_id || frontend_phone_id;
 
         if (!waba_id || !phone_number_id || waba_id.includes("extract_from") || phone_number_id.includes("extract_from")) {
-            throw new Error("Could not determine WABA ID or Phone Number ID from the token structure.");
+            throw new Error(`Could not determine IDs from Meta token response. WABA ID: ${waba_id || 'null'}, Phone ID: ${phone_number_id || 'null'}. Ensure your FB App has permissions to the business account and phone numbers.`);
         }
 
         if (session) {
